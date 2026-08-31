@@ -77,5 +77,6 @@ Repairs are proposed and executed through a strict security boundary:
 ## Requirements
 
 - Python 3.9 or higher
-- Zsh (for hook integration)
-- Ollama (optional, for generative diagnostics)
+- macOS or Linux (Requires a POSIX-compliant OS for PTY support)
+- *Ollama (Optional, for generative AI diagnostics)*
+- *Zsh (Optional, for automatic hook integration)*
