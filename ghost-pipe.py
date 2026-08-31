@@ -938,7 +938,7 @@ def run_board(stdscr):
         stdscr.clear()
         
         # Draw Header
-        header = f" Ghost-Pipe v{__version__} — Forensic Dashboard "
+        header = f" Ghost-Pipe v1.0.0 — Forensic Dashboard "
         stdscr.attron(curses.color_pair(1) if curses.has_colors() else curses.A_REVERSE)
         stdscr.addstr(0, 0, header.center(w)[:w])
         stdscr.attroff(curses.color_pair(1) if curses.has_colors() else curses.A_REVERSE)
