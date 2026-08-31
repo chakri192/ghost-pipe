@@ -2,11 +2,6 @@
 
 Ghost-Pipe is a single-file, zero-dependency terminal forensics and automated repair engine. Built specifically for macOS and Zsh, it captures command failures, securely redacts sensitive data, and diagnoses the root cause using a hybrid deterministic and local AI engine.
 
-## Try It Live
-
-**[Click here for an interactive browser demo via Gitpod](https://gitpod.io/#https://github.com/chakri192/ghost-pipe)** 
-*(Boot up a real, sandboxed Linux terminal in 3 seconds to test Ghost-Pipe with zero installation).*
-
 ## Architecture and Design
 
 - **Zero Dependencies:** Built entirely on the Python 3 Standard Library. No `requests`, `rich`, `click`, or `pyperclip`.
