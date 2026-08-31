@@ -1449,6 +1449,7 @@ def cmd_demo(args):
     tmp = tempfile.mkdtemp(prefix="gp_demo_")
     os.chdir(tmp)
     subprocess.run(["git", "init"], stdout=subprocess.DEVNULL)
+    subprocess.run(["git", "-c", "user.name=Demo", "-c", "user.email=demo@ghostpipe.local", "commit", "--allow-empty", "-m", "Init"], stdout=subprocess.DEVNULL)
     out_step("2", "Creating deterministic failure (Architecture mismatch simulation)...")
     broken_path = pathlib.Path("broken_tool")
     broken_path.write_text("#!/bin/sh\nprintf '%s\\n' 'Bad CPU type in executable' >&2\nexit 86\n")
