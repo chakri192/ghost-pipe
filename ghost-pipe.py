@@ -911,6 +911,7 @@ def cmd_inspect(args):
 # =========================================================================
 
 def run_board(stdscr):
+    import curses, textwrap
     curses.curs_set(0)
     conn = init_db()
     c = conn.cursor()
@@ -918,58 +919,91 @@ def run_board(stdscr):
     runs = c.fetchall()
     conn.close()
     if not runs:
-        stdscr.addstr(0, 0, "No runs found.")
-        stdscr.refresh()
+        stdscr.addstr(0, 0, "No runs in history.")
         stdscr.getch()
         return
+
+    # Modern color support if available
+    curses.use_default_colors()
+    if curses.has_colors():
+        curses.start_color()
+        curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLUE) # Header/Footer
+        curses.init_pair(2, curses.COLOR_RED, -1)     # Error
+        curses.init_pair(3, curses.COLOR_GREEN, -1)   # Success
+        curses.init_pair(4, curses.COLOR_BLACK, curses.COLOR_WHITE) # Selected
+        
     idx = 0
     while True:
-        stdscr.clear()
         h, w = stdscr.getmaxyx()
-        left_w = min(50, w // 2)
-        for i, row in enumerate(runs[: h - 2]):
+        stdscr.clear()
+        
+        # Draw Header
+        header = f" Ghost-Pipe v{__version__} — Forensic Dashboard "
+        stdscr.attron(curses.color_pair(1) if curses.has_colors() else curses.A_REVERSE)
+        stdscr.addstr(0, 0, header.center(w)[:w])
+        stdscr.attroff(curses.color_pair(1) if curses.has_colors() else curses.A_REVERSE)
+
+        left_w = min(w // 2, 50)
+        
+        # Draw list of runs
+        for i, row in enumerate(runs[: h - 3]):
             cmd_trunc = row[3][: left_w - 20].ljust(left_w - 20)
-            line = f"{row[0][:6]} | Ex:{row[2]:<3} | {cmd_trunc}"
+            ex_code = row[2]
+            status_str = f"Ex:{ex_code:<3}" if ex_code != 0 else "OK     "
+            line = f" {row[0][:6]} | {status_str} | {cmd_trunc}"
+            
             if i == idx:
-                stdscr.attron(curses.A_REVERSE)
-                stdscr.addstr(i, 0, line[:left_w].ljust(left_w))
-                stdscr.attroff(curses.A_REVERSE)
+                stdscr.attron(curses.color_pair(4) if curses.has_colors() else curses.A_REVERSE)
+                stdscr.addstr(i + 1, 0, line[:left_w].ljust(left_w))
+                stdscr.attroff(curses.color_pair(4) if curses.has_colors() else curses.A_REVERSE)
             else:
                 try:
-                    stdscr.addstr(i, 0, line[:left_w].ljust(left_w))
+                    stdscr.addstr(i + 1, 0, line[:left_w].ljust(left_w))
                 except curses.error:
                     pass
-        for i in range(h):
+                    
+        # Draw divider (avoid ACS_VLINE for cross-platform safety)
+        for i in range(1, h - 1):
             try:
-                stdscr.addch(i, left_w, curses.ACS_VLINE)
+                stdscr.addch(i, left_w, '|')
             except curses.error:
                 pass
+                
+        # Draw details for selected run
         run_id = runs[idx][0]
         run = get_run(run_id)
         if run:
             details = [
-                f"Run ID: {run.run_id}",
-                f"Time: {run.timestamp}",
-                f"Cmd: {run.cmd}",
-                f"Exit: {run.exit_code}",
-                "-" * 20,
-                "Output Snippet:",
+                f" Run ID: {run.run_id}",
+                f" Time:   {run.timestamp}",
+                f" Cmd:    {run.cmd}",
+                f" Exit:   {run.exit_code}",
+                "-" * (w - left_w - 3),
+                " Output Snapshot:",
+                ""
             ]
             output = get_recent_output(run, 800)
             for out_line in output.split("\n"):
-                details.extend(textwrap.wrap(out_line, width=w - left_w - 3) or [""])
-            for i, line in enumerate(details[: h - 4]):
+                details.extend(textwrap.wrap(" " + out_line, width=w - left_w - 3) or [""])
+                
+            for i, line in enumerate(details[: h - 3]):
                 try:
-                    stdscr.addstr(i, left_w + 2, line[: w - left_w - 3])
+                    stdscr.addstr(i + 1, left_w + 2, line[: w - left_w - 3])
                 except curses.error:
                     pass
-            footer = "[↑/↓] Navigate  [Enter] AI Explain  [q] Quit"
-            try:
-                stdscr.addstr(h - 1, 0, footer.ljust(w)[: w], curses.A_STANDOUT)
-            except curses.error:
-                pass
+                    
+        # Draw Footer
+        footer = " [↑/↓] Navigate   [Enter] AI Analyze   [q] Quit "
+        stdscr.attron(curses.color_pair(1) if curses.has_colors() else curses.A_REVERSE)
+        try:
+            stdscr.addstr(h - 1, 0, footer.center(w)[: w])
+        except curses.error:
+            pass
+        stdscr.attroff(curses.color_pair(1) if curses.has_colors() else curses.A_REVERSE)
+
         stdscr.refresh()
         key = stdscr.getch()
+        
         if key == curses.KEY_UP and idx > 0:
             idx -= 1
         elif key == curses.KEY_DOWN and idx < len(runs) - 1:
@@ -978,28 +1012,62 @@ def run_board(stdscr):
             break
         elif key == ord('\n'):
             stdscr.clear()
-            stdscr.addstr(0, 0, "Context Firewall applied. Querying Ollama on localhost:11434...")
+            header = " Ghost-Pipe AI Analysis "
+            stdscr.attron(curses.color_pair(1) if curses.has_colors() else curses.A_REVERSE)
+            stdscr.addstr(0, 0, header.center(w)[:w])
+            stdscr.attroff(curses.color_pair(1) if curses.has_colors() else curses.A_REVERSE)
+            
+            stdscr.addstr(2, 2, "Context Firewall applied. Querying Ollama on localhost:11434...")
             stdscr.refresh()
+            
+            # Use deterministic diagnose first
+            import argparse
+            diag_args = argparse.Namespace(
+                run_id=run.run_id,
+                offline=False,
+                auto_fix=False,
+                loop=0
+            )
+            
+            # Since diagnose prints to stdout, we just fall back to a simple explain for the UI
             prompt = (
                 f"Analyze this failed terminal command:\nCommand: {run.cmd}\nExit Code: {run.exit_code}\nOutput:\n{get_recent_output(run)}\n\n"
                 "Respond STRICTLY in JSON: {\"summary\": \"str\", \"root_cause\": \"str\"}"
             )
             res = query_ollama(prompt)
             stdscr.clear()
+            
+            stdscr.attron(curses.color_pair(1) if curses.has_colors() else curses.A_REVERSE)
+            stdscr.addstr(0, 0, header.center(w)[:w])
+            stdscr.attroff(curses.color_pair(1) if curses.has_colors() else curses.A_REVERSE)
+            
             if not res or "error" in res:
-                stdscr.addstr(0, 0, f"AI Error: {res.get('error', 'Unknown')}")
+                stdscr.addstr(3, 2, f"AI Error: {res.get('error', 'Unknown')}", curses.color_pair(2) if curses.has_colors() else curses.A_NORMAL)
             else:
-                stdscr.addstr(0, 0, f"Summary: {res.get('summary', 'N/A')}", curses.A_BOLD)
+                stdscr.addstr(3, 2, f"SUMMARY:", curses.A_BOLD)
                 try:
-                    wrapped = textwrap.wrap(f"Root Cause: {res.get('root_cause', 'N/A')}", width=w - 2)
-                    for i, l in enumerate(wrapped):
-                        stdscr.addstr(2 + i, 0, l)
+                    wrapped_sum = textwrap.wrap(res.get('summary', 'N/A'), width=w - 4)
+                    for i, l in enumerate(wrapped_sum):
+                        stdscr.addstr(4 + i, 4, l)
                 except curses.error:
                     pass
+                    
+                stdscr.addstr(6 + len(wrapped_sum), 2, f"ROOT CAUSE:", curses.A_BOLD)
+                try:
+                    wrapped_rc = textwrap.wrap(res.get('root_cause', 'N/A'), width=w - 4)
+                    for i, l in enumerate(wrapped_rc):
+                        stdscr.addstr(7 + len(wrapped_sum) + i, 4, l)
+                except curses.error:
+                    pass
+                    
+            footer_ret = " [Press any key to return] "
+            stdscr.attron(curses.color_pair(1) if curses.has_colors() else curses.A_REVERSE)
             try:
-                stdscr.addstr(h - 1, 0, "[Press any key to return]".ljust(w)[: w], curses.A_STANDOUT)
+                stdscr.addstr(h - 1, 0, footer_ret.center(w)[: w])
             except curses.error:
                 pass
+            stdscr.attroff(curses.color_pair(1) if curses.has_colors() else curses.A_REVERSE)
+            
             stdscr.refresh()
             stdscr.getch()
 
