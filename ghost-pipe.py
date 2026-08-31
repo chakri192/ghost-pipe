@@ -619,16 +619,21 @@ def get_custom_rules() -> list[dict]:
 
 def get_macho_arch(executable_path: str) -> str:
     try:
+        import struct, mmap
         with open(executable_path, "rb") as f:
             magic = f.read(4)
-            if magic == b"\xcf\xfa\xed\xfe":
-                return "arm64"
-            if magic == b"\xce\xfa\xed\xfe":
-                return "x86_64"
-            if magic == b"\xfe\xed\xfa\xcf":
-                return "arm64 (reverse)"
-            if magic == b"\xfe\xed\xfa\xce":
-                return "x86_64 (reverse)"
+            if magic in (b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xfe\xed\xfa\xce"):
+                f.seek(0)
+                mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+                # Mach-O header: magic(4), cputype(4)
+                if magic in (b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe"):
+                    cputype = struct.unpack_from("<I", mm, 4)[0]
+                else:
+                    cputype = struct.unpack_from(">I", mm, 4)[0]
+                mm.close()
+                if cputype == 0x0100000C: return "arm64"
+                if cputype == 0x01000007: return "x86_64"
+                return f"unknown (cputype: {cputype})"
             if magic == b"\xca\xfe\xba\xbe":
                 return "fat universal"
     except Exception:
@@ -1215,9 +1220,12 @@ def cmd_fix(args):
                 print("✓ Repair resolved the failure inside the worktree.")
                 ans = input("Apply the same command to your actual working tree now? [y/N]: ")
                 if ans.strip().lower() == "y":
-                    try:
-                        subprocess.run(cmd_args, timeout=30, shell=False, check=False)
-                        print("Applied.")
+                    if is_destructive_command(cmd):
+                        print("✗ Repair matches a known destructive pattern. Aborting apply.")
+                    else:
+                        try:
+                            subprocess.run(cmd_args, timeout=30, shell=False, check=False)
+                            print("Applied.")
                     except subprocess.TimeoutExpired:
                         print("✗ Command timed out.")
                 else:
