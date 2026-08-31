@@ -28,6 +28,28 @@ import stat
 import struct
 import subprocess
 import sys
+
+# =========================================================================
+# UI STYLING (Zero Dependency ANSI)
+# =========================================================================
+C_RESET = "\033[0m"
+C_BOLD = "\033[1m"
+C_DIM = "\033[2m"
+C_RED = "\033[31m"
+C_GREEN = "\033[32m"
+C_YELLOW = "\033[33m"
+C_BLUE = "\033[34m"
+C_MAGENTA = "\033[35m"
+C_CYAN = "\033[36m"
+
+def out_info(msg): print(f"{C_BLUE}{C_BOLD}ℹ{C_RESET} {C_BOLD}{msg}{C_RESET}")
+def out_success(msg): print(f"{C_GREEN}{C_BOLD}✓{C_RESET} {msg}")
+def out_error(msg): print(f"{C_RED}{C_BOLD}✗{C_RESET} {C_RED}{msg}{C_RESET}")
+def out_warn(msg): print(f"{C_YELLOW}{C_BOLD}⚠{C_RESET} {C_YELLOW}{msg}{C_RESET}")
+def out_header(msg): print(f"\n{C_MAGENTA}{C_BOLD}=== {msg.upper()} ==={C_RESET}")
+def out_dim(msg): print(f"{C_DIM}{msg}{C_RESET}")
+def out_step(idx, msg): print(f"{C_CYAN}{C_BOLD}[{idx}]{C_RESET} {msg}")
+
 import tempfile
 import termios
 import textwrap
@@ -215,7 +237,7 @@ def cmd_run(args):
 
             
         if exit_code != 0 and args.repair_loop > 0:
-            print(f"\n[Ghost-Pipe] Command failed with exit code {exit_code}. Proposing repair...")
+            out_warn(f"Command failed with exit code {exit_code}. Proposing repair...")
             import argparse
             diag_args = argparse.Namespace(
                 run_id="latest",
@@ -245,7 +267,7 @@ def cmd_prune(args):
     c.execute("DELETE FROM runs WHERE timestamp < datetime('now', ?)", (f"-{days} days",))
     conn.commit()
     conn.close()
-    print(f"✓ Pruned {count} runs older than {days} days.")
+    out_success(f"Pruned {count} runs older than {days} days.")
 
 # =========================================================================
 # ZSH HOOK INSTALLER
@@ -298,7 +320,7 @@ add-zsh-hook precmd precmd_ghost_pipe
 """
 
 def cmd_install_zsh():
-    print("Installing Ghost-Pipe Zsh hooks...")
+    out_info("Installing Ghost-Pipe Zsh hooks...")
     script_path = os.path.abspath(__file__)
     hook_content = ZSH_HOOK_BLOCK.replace("PYTHON_SCRIPT_PATH", script_path)
     if not ZSHRC_PATH.exists():
@@ -309,7 +331,7 @@ def cmd_install_zsh():
         content = pattern.sub('', content)
     with open(ZSHRC_PATH, "a") as f:
         f.write("\n" + hook_content)
-    print("✓ Successfully installed Zsh hooks. Restart your terminal or run `source ~/.zshrc`.")
+    out_success("Successfully installed Zsh hooks. Restart your terminal or run `source ~/.zshrc`.")
 
 def cmd_uninstall_zsh():
     if not ZSHRC_PATH.exists():
@@ -318,18 +340,18 @@ def cmd_uninstall_zsh():
     pattern = re.compile(r"\n?# >>> ghost-pipe initialize >>>.*?# <<< ghost-pipe initialize <<<\n?", re.DOTALL)
     new_content = pattern.sub('', content)
     ZSHRC_PATH.write_text(new_content)
-    print("✓ Successfully removed Ghost-Pipe Zsh hooks.")
+    out_success("Successfully removed Ghost-Pipe Zsh hooks.")
 
 def cmd_enable(args):
     disable_file = GHOST_PIPE_DIR / "disabled"
     if disable_file.exists():
         disable_file.unlink()
-    print("✓ Ghost-Pipe tracking enabled.")
+    out_success("Ghost-Pipe tracking enabled.")
 
 def cmd_disable(args):
     disable_file = GHOST_PIPE_DIR / "disabled"
     disable_file.touch()
-    print("✓ Ghost-Pipe tracking disabled.")
+    out_success("Ghost-Pipe tracking disabled.")
 
 # =========================================================================
 # INTERNAL RECORDER (HOOK MODE)
@@ -844,30 +866,30 @@ def cmd_diagnose(args):
         print("No run found.")
         return
     if run.exit_code == 0:
-        print("✓ Command completed successfully.")
+        out_success("Command completed successfully.")
         return
-    print(f"Diagnosing run {run.run_id} ({run.cmd})...\n")
+    out_info(f"Diagnosing run {C_CYAN}{run.run_id[:8]}{C_RESET} ({C_BOLD}{run.cmd}{C_RESET})...")
     diag = diagnose_deterministic(run)
     if diag:
-        print(f"✗ Deterministic Diagnosis: {diag['summary']} (Confidence: {diag['confidence']})")
-        print(f"  Evidence: {diag['evidence'][0]}")
-        print(f"  Actions: {diag['actions'][0]['command']}")
+        out_error(f"Deterministic Diagnosis: {C_BOLD}{diag['summary']}{C_RESET} {C_DIM}(Confidence: {diag['confidence']}){C_RESET}")
+        print(f"  {C_BOLD}Evidence:{C_RESET} {C_YELLOW}{diag['evidence'][0]}{C_RESET}")
+        print(f"  {C_BOLD}Actions:{C_RESET}  {C_GREEN}{diag['actions'][0]['command']}{C_RESET}")
     else:
-        print("No deterministic signature matched. Use 'ghost-pipe explain' for local AI analysis.")
+        out_dim("No deterministic signature matched. Run 'ghost-pipe explain' for AI analysis.")
 
 def cmd_explain(args):
     run = get_latest_run() if args.target == "latest" else get_run(args.target)
     if not run:
         return
     if run.exit_code == 0:
-        print("✓ Command completed successfully.")
+        out_success("Command completed successfully.")
         return
     diag = diagnose_deterministic(run)
     if diag and diag.get("confidence", 0) >= 0.9:
         print(f"\n[Ghost-Pipe] Deterministic Diagnosis: {diag['summary']} (confidence {diag['confidence']})")
         print(f"Evidence: {diag['evidence'][0]}")
         for a in diag.get("actions", []):
-            print(f"  - `{a['command']}` [Risk: {a.get('risk', 'unknown')}]")
+            print(f"  {C_MAGENTA}➜{C_RESET} {C_GREEN}{a['command']}{C_RESET} {C_DIM}[Risk: {a.get('risk', 'unknown')}]{C_RESET}")
             save_last_suggestion(a['command'])
         return
     output = get_recent_output(run)
@@ -875,24 +897,24 @@ def cmd_explain(args):
         f"Analyze this failed terminal command:\nCommand: {run.cmd}\nExit Code: {run.exit_code}\nOutput:\n{output}\n\n"
         "Respond STRICTLY in JSON: {\"summary\": \"str\", \"root_cause\": \"str\", \"actions\": [{\"command\": \"str\", \"risk\": \"low|medium|high\"}]}"
     )
-    print("Context Firewall applied. Querying Ollama on localhost:11434...", flush=True)
+    out_info("Context Firewall active. Querying Ollama on localhost:11434...")
     res = query_ollama(prompt)
     if not res or "error" in res:
         err = res.get("error", "Unknown Error") if res else "Unknown Error"
-        print(f"Local AI unavailable ({err}).")
+        out_error(f"Local AI unavailable ({err}).")
         if diag:
             print(f"\nFalling back to deterministic diagnosis: {diag['summary']} (confidence {diag['confidence']})")
             print(f"Evidence: {diag['evidence'][0]}")
             for a in diag.get("actions", []):
-                print(f"  - `{a['command']}` [Risk: {a.get('risk', 'unknown')}]")
+                print(f"  {C_MAGENTA}➜{C_RESET} {C_GREEN}{a['command']}{C_RESET} {C_DIM}[Risk: {a.get('risk', 'unknown')}]{C_RESET}")
                 save_last_suggestion(a['command'])
         else:
             print("No deterministic signature matched either. Start Ollama for AI analysis, or run `ghost-pipe inspect` to review the raw (redacted) output yourself.")
         return
-    print("\n🧠 Ghost-Pipe AI Diagnosis:")
-    print(f"Summary: {res.get('summary', 'N/A')}")
-    print(f"Root Cause: {res.get('root_cause', 'N/A')}")
-    print("\nSuggested Actions:")
+    out_header("🧠 Ghost-Pipe AI Diagnosis")
+    print(f"{C_BOLD}Summary:{C_RESET} {res.get('summary', 'N/A')}")
+    print(f"{C_BOLD}Root Cause:{C_RESET} {res.get('root_cause', 'N/A')}")
+    print(f"\n{C_BOLD}Suggested Actions:{C_RESET}")
     for a in res.get('actions', []):
         print(f"  - `{a.get('command')}` [Risk: {a.get('risk')}]")
         if a.get('command'):
@@ -1089,7 +1111,7 @@ def cmd_fix(args):
     if not run:
         return
     if run.exit_code == 0:
-        print("✓ Command completed successfully.")
+        out_success("Command completed successfully.")
         return
     output = get_recent_output(run)
     cmd = None
@@ -1235,7 +1257,7 @@ def cmd_compare(args):
         print("Run B not found.")
         return
     print(f"Comparing Failure ({run_a.run_id[:8]}) vs Success ({run_b.run_id[:8]})")
-    print("-" * 50)
+    out_dim("-" * 60)
     print(f"Command A (Failed): {run_a.cmd}")
     print(f"Command B (Good): {run_b.cmd}\n")
     print("Changed:")
@@ -1259,8 +1281,8 @@ def cmd_history(args):
     conn = init_db()
     c = conn.cursor()
     c.execute("SELECT id, timestamp, exit_code, duration, cmd FROM runs ORDER BY timestamp DESC LIMIT 15")
-    print(f"{'RUN ID':<10} | {'STATUS':<8} | {'CMD'}")
-    print("-" * 50)
+    print(f"{C_BOLD}{'RUN ID':<10} | {'STATUS':<8} | {'CMD'}{C_RESET}")
+    out_dim("-" * 60)
     for row in c.fetchall():
         id_short = row[0][:8]
         print(f"{id_short:<10} | {format_exit(row[2]):<8} | {row[4][:60]}")
@@ -1314,28 +1336,28 @@ def cmd_config(args):
 def cmd_doctor(args):
     print("Ghost-Pipe Doctor")
     print("-----------------")
-    print(f"Database: {GHOST_PIPE_DB}")
+    print(f"{C_BOLD}Database:{C_RESET} {GHOST_PIPE_DB}")
     installed = ZSHRC_PATH.exists() and "# >>> ghost-pipe initialize >>>" in ZSHRC_PATH.read_text()
-    print(f"Zsh Hook: {'Installed' if installed else 'Not Installed'}")
+    print(f"{C_BOLD}Zsh Hook:{C_RESET} {C_GREEN}Installed{C_RESET}" if installed else f"{C_BOLD}Zsh Hook:{C_RESET} {C_RED}Not Installed{C_RESET}")
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(1.0)
     try:
         s.connect(("127.0.0.1", 11434))
-        print("Ollama:   ONLINE (localhost:11434)")
+        print(f"{C_BOLD}Ollama:{C_RESET}   {C_GREEN}ONLINE{C_RESET} (localhost:11434)")
     except Exception:
-        print("Ollama:   OFFLINE (Start Ollama for AI features)")
+        print(f"{C_BOLD}Ollama:{C_RESET}   {C_RED}OFFLINE{C_RESET} (Start Ollama for AI features)")
     finally:
         s.close()
 
 def cmd_audit():
-    print("stdlib audit")
-    print("  ✓ third‑party imports: 0")
-    print("  ✓ external runtime dependencies: 0")
-    print("  ✓ HTTP implementation: urllib (standard library)")
-    print("  ✓ JSON implementation: standard library")
-    print("  ✓ terminal rendering: ANSI escape codes / optional curses")
-    print("  ✓ Ollama: optional localhost service")
-    print("  ✓ single‑file mode: enabled")
+    out_header("Standard Library Audit")
+    print(f"  {C_GREEN}✓{C_RESET} {C_BOLD}third‑party imports:{C_RESET} 0")
+    print(f"  {C_GREEN}✓{C_RESET} {C_BOLD}external runtime dependencies:{C_RESET} 0")
+    print(f"  {C_GREEN}✓{C_RESET} {C_BOLD}HTTP implementation:{C_RESET} urllib (standard library)")
+    print(f"  {C_GREEN}✓{C_RESET} {C_BOLD}JSON implementation:{C_RESET} standard library")
+    print(f"  {C_GREEN}✓{C_RESET} {C_BOLD}terminal rendering:{C_RESET} ANSI escape codes / optional curses")
+    print(f"  {C_GREEN}✓{C_RESET} {C_BOLD}Ollama:{C_RESET} optional localhost service")
+    print(f"  {C_GREEN}✓{C_RESET} {C_BOLD}single‑file mode:{C_RESET} enabled")
 
 # =========================================================================
 # SELF‑TEST (uses in‑memory DB when env var is set)
@@ -1394,28 +1416,28 @@ def cmd_benchmark(args):
 
 def cmd_demo(args):
     script_path = os.path.abspath(__file__)
-    print("Ghost-Pipe Demo Script")
-    print("1. Creating temporary git repository...")
+    out_header("Ghost-Pipe Demo Script")
+    out_step("1", "Creating temporary git repository...")
     original_cwd = os.getcwd()
     tmp = tempfile.mkdtemp(prefix="gp_demo_")
     os.chdir(tmp)
     subprocess.run(["git", "init"], stdout=subprocess.DEVNULL)
-    print("2. Creating deterministic failure (Architecture mismatch simulation)...")
+    out_step("2", "Creating deterministic failure (Architecture mismatch simulation)...")
     broken_path = pathlib.Path("broken_tool")
     broken_path.write_text("#!/bin/sh\nprintf '%s\\n' 'Bad CPU type in executable' >&2\nexit 86\n")
     broken_path.chmod(0o755)
-    print("3. Executing failing command...")
+    out_step("3", "Executing failing command...")
     subprocess.run([sys.executable, script_path, "run", "--", "./broken_tool"], shell=False)
-    print("\n4. Diagnosing offline...")
+    print(""); out_step("4", "Diagnosing offline...")
     subprocess.run([sys.executable, script_path, "diagnose", "latest", "--offline"], shell=False)
-    print("\n5. Showing Context Firewall...")
+    print(""); out_step("5", "Showing Context Firewall...")
     subprocess.run([sys.executable, script_path, "inspect", "latest"], shell=False)
-    print(f"\nDemo repo ready at {tmp}. Run `gp fix latest --worktree` to see it in action.")
+    out_success(f"Demo repo ready at {C_CYAN}{tmp}{C_RESET}. Run `gp fix latest --worktree` to see it in action.")
     if not getattr(args, "keep", False):
         os.chdir(original_cwd)
         try: shutil.rmtree(tmp)
         except Exception: pass
-        print("Cleaned up demo repo.")
+        out_success("Cleaned up demo repo.")
 
 def main():
     parser = argparse.ArgumentParser(description="Ghost-Pipe: Local Terminal Failure Forensics")
