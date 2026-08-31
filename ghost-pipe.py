@@ -667,7 +667,7 @@ def diagnose_deterministic(run: GhostRun) -> typing.Optional[dict]:
         except Exception:
             pass
     if "address already in use" in output.lower():
-        m = re.search(r"port (\d+)", output, re.IGNORECASE)
+        m = re.search(r"(?:port\\s+|:+)(\\d+)", output, re.IGNORECASE)
         port = m.group(1) if m else "<port>"
         return {
             "summary": "Port Already In Use",
