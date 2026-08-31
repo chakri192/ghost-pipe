@@ -1226,8 +1226,8 @@ def cmd_fix(args):
                         try:
                             subprocess.run(cmd_args, timeout=30, shell=False, check=False)
                             print("Applied.")
-                    except subprocess.TimeoutExpired:
-                        print("✗ Command timed out.")
+                        except subprocess.TimeoutExpired:
+                            print("✗ Command timed out.")
                 else:
                     print("Not applied.")
             else:
