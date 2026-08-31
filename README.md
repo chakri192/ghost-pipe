@@ -35,7 +35,7 @@ Failures are processed through a two-stage diagnostic pipeline:
   - **Missing Dependencies:** Detects `ModuleNotFoundError` and builds immediate `pip install` commands.
   - **Custom Rules:** Expandable JSON rules engine (`~/.ghost-pipe/rules.json`) maps internal company errors (e.g., AWS SSO token expiration) to exact fixes.
   - **Binary Inspection:** Includes a custom Mach-O binary parser (using `mmap` and `struct.unpack`) to perfectly detect Apple Silicon / Intel architecture mismatches.
-- **Generative Engine:** Unrecognised failures are routed to a local Ollama model for root-cause analysis via a zero-dependency, chunk-aware HTTP client built purely on `urllib.request`.
+- **Generative Engine:** Unrecognised failures are routed to a local Ollama model for root-cause analysis via a zero-dependency, chunk-aware HTTP client built purely on `pure socket`.
 
 ### 4. Interactive Dashboard UI
 - **`gp board`:** A full-screen forensic terminal dashboard built on the standard `curses` library. Navigate through historical runs, view exit codes, and press `Enter` on any failure to immediately trigger a secure Context Firewall analysis.

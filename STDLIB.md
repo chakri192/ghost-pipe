@@ -6,8 +6,8 @@ This log fulfills the **Package Killer (+3)** and **STDLIB Log (+3)** bonus chal
 
 ### 1. HTTP Networking & Streaming
 * **Normally:** `requests` or `httpx` (for querying the Ollama AI HTTP API)
-* **Instead:** `urllib.request` + `urllib.error`
-* **Details:** We built a custom Newline-Delimited JSON (NDJSON) streaming client using `urllib.request.urlopen`. It natively handles chunked transfer encoding, socket timeouts, and streams tokens individually from the local LLM.
+* **Instead:** `pure socket` + `socket.error`
+* **Details:** We built a custom Newline-Delimited JSON (NDJSON) streaming client using `pure socket.urlopen`. It natively handles chunked transfer encoding, socket timeouts, and streams tokens individually from the local LLM.
 
 ### 2. Terminal PTY Management
 * **Normally:** `pexpect` or `ptyprocess`
