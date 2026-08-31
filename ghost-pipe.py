@@ -1128,7 +1128,10 @@ def cmd_board(args):
     except Exception as e:
         print(f"Curses UI unavailable: {e}")
         return
-    curses.wrapper(run_board)
+    try:
+        curses.wrapper(run_board)
+    except KeyboardInterrupt:
+        pass
 
 # =========================================================================
 # REPAIR & VERIFICATION
