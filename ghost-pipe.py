@@ -1334,8 +1334,7 @@ def cmd_config(args):
         print("Status: ENABLED")
 
 def cmd_doctor(args):
-    print("Ghost-Pipe Doctor")
-    print("-----------------")
+    out_header("Ghost-Pipe Doctor")
     print(f"{C_BOLD}Database:{C_RESET} {GHOST_PIPE_DB}")
     installed = ZSHRC_PATH.exists() and "# >>> ghost-pipe initialize >>>" in ZSHRC_PATH.read_text()
     print(f"{C_BOLD}Zsh Hook:{C_RESET} {C_GREEN}Installed{C_RESET}" if installed else f"{C_BOLD}Zsh Hook:{C_RESET} {C_RED}Not Installed{C_RESET}")
