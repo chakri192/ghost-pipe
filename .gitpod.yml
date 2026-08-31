@@ -1,0 +1,10 @@
+tasks:
+  - init: python3 -m py_compile ghost-pipe.py
+    command: |
+      clear
+      echo -e "\033[1;35m=== Welcome to the Ghost-Pipe Interactive Demo ===\033[0m"
+      echo "Ghost-Pipe is a zero-dependency terminal forensics engine."
+      echo "Press Enter to run the automated demo, or type your own commands!"
+      read
+      ./ghost-pipe.py demo --keep
+      echo -e "\n\033[1;32m✓ Demo complete! Feel free to run './ghost-pipe.py board' to see the UI.\033[0m"
