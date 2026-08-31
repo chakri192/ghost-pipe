@@ -890,10 +890,10 @@ def cmd_explain(args):
     if diag and diag.get("confidence", 0) >= 0.9:
         print(f"\n[Ghost-Pipe] Deterministic Diagnosis: {diag['summary']} (confidence {diag['confidence']})")
         print(f"Evidence: {diag['evidence'][0]}")
-        for a in diag.get("actions", []):
+        for i, a in enumerate(diag.get("actions", [])):
             print(f"  {C_MAGENTA}➜{C_RESET} {C_GREEN}{a['command']}{C_RESET} {C_DIM}[Risk: {a.get('risk', 'unknown')}]{C_RESET}")
-        if i == 0 and copy_to_clipboard(a['command']):
-            print(f"    {C_DIM}↳ Copied to clipboard!{C_RESET}")
+            if i == 0 and copy_to_clipboard(a['command']):
+                print(f"    {C_DIM}↳ Copied to clipboard!{C_RESET}")
             save_last_suggestion(a['command'])
         return
     output = get_recent_output(run)
@@ -911,8 +911,6 @@ def cmd_explain(args):
             print(f"Evidence: {diag['evidence'][0]}")
             for a in diag.get("actions", []):
                 print(f"  {C_MAGENTA}➜{C_RESET} {C_GREEN}{a['command']}{C_RESET} {C_DIM}[Risk: {a.get('risk', 'unknown')}]{C_RESET}")
-        if i == 0 and copy_to_clipboard(a['command']):
-            print(f"    {C_DIM}↳ Copied to clipboard!{C_RESET}")
                 save_last_suggestion(a['command'])
         else:
             print("No deterministic signature matched either. Start Ollama for AI analysis, or run `ghost-pipe inspect` to review the raw (redacted) output yourself.")
@@ -922,7 +920,9 @@ def cmd_explain(args):
     print(f"{C_BOLD}Root Cause:{C_RESET} {res.get('root_cause', 'N/A')}")
     print(f"\n{C_BOLD}Suggested Actions:{C_RESET}")
     for i, a in enumerate(res.get('actions', [])):
-        print(f"  - `{a.get('command')}` [Risk: {a.get('risk')}]")
+        print(f"  {C_MAGENTA}➜{C_RESET} {C_GREEN}{a.get('command')}{C_RESET} {C_DIM}[Risk: {a.get('risk', 'unknown')}]{C_RESET}")
+        if i == 0 and a.get('command') and copy_to_clipboard(a['command']):
+            print(f"    {C_DIM}↳ Copied to clipboard!{C_RESET}")
         if a.get('command'):
             save_last_suggestion(a['command'])
 
