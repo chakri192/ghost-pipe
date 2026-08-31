@@ -50,6 +50,28 @@ def out_header(msg): print(f"\n{C_MAGENTA}{C_BOLD}=== {msg.upper()} ==={C_RESET}
 def out_dim(msg): print(f"{C_DIM}{msg}{C_RESET}")
 def out_step(idx, msg): print(f"{C_CYAN}{C_BOLD}[{idx}]{C_RESET} {msg}")
 
+def copy_to_clipboard(text):
+    try:
+        import platform, subprocess, shutil
+        if platform.system() == "Darwin":
+            subprocess.run(["pbcopy"], input=text.encode("utf-8"), check=True)
+            return True
+        elif platform.system() == "Linux":
+            if shutil.which("xclip"):
+                subprocess.run(["xclip", "-selection", "clipboard"], input=text.encode("utf-8"), check=True)
+                return True
+            elif shutil.which("xsel"):
+                subprocess.run(["xsel", "--clipboard", "--input"], input=text.encode("utf-8"), check=True)
+                return True
+        elif platform.system() == "Windows":
+            subprocess.run(["clip"], input=text.encode("utf-8"), check=True)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+
 import tempfile
 import termios
 import textwrap
