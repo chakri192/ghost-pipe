@@ -145,7 +145,7 @@ def get_latest_run() -> typing.Optional[GhostRun]:
         conn = init_db()
         c = conn.cursor()
         c.execute(
-            "SELECT id, timestamp, cmd, exit_code, duration, cwd FROM runs ORDER BY timestamp DESC LIMIT 1"
+            "SELECT id, timestamp, cmd, exit_code, duration, cwd FROM runs ORDER BY julianday(timestamp) DESC, rowid DESC LIMIT 1"
         )
         row = c.fetchone()
         if not row:
@@ -226,7 +226,7 @@ def auto_prune(days: int = 7):
         conn = init_db()
         c = conn.cursor()
         c.execute(
-            "SELECT id FROM runs WHERE timestamp < datetime('now', ?)",
+            "SELECT id FROM runs WHERE datetime(timestamp) < datetime('now', ?)",
             (f"-{days} days",),
         )
         rows = c.fetchall()
@@ -235,7 +235,7 @@ def auto_prune(days: int = 7):
             if p.exists():
                 p.unlink()
         c.execute(
-            "DELETE FROM runs WHERE timestamp < datetime('now', ?)",
+            "DELETE FROM runs WHERE datetime(timestamp) < datetime('now', ?)",
             (f"-{days} days",),
         )
         conn.commit()
@@ -258,16 +258,13 @@ def cmd_run(args):
         
 
             
-        if exit_code != 0 and args.repair_loop > 0:
-            out_warn(f"Command failed with exit code {exit_code}. Proposing repair...")
-            import argparse
-            diag_args = argparse.Namespace(
-                run_id="latest",
-                offline=False,
-                auto_fix=True,
-                loop=args.repair_loop
-            )
-            cmd_diagnose(diag_args)
+        attempt = 0
+        while exit_code != 0 and attempt < args.repair_loop:
+            attempt += 1
+            out_warn(f"Command failed with exit code {exit_code}. Proposing repair {attempt}/{args.repair_loop}...")
+            cmd_fix(argparse.Namespace(target=run_id, dry_run=False, worktree=False, apply=True))
+            out_info("Rerunning the original command...")
+            exit_code, run_id, log_path, duration = _pty_execute(cmd)
             
         sys.exit(exit_code)
     except Exception as exc:
@@ -278,7 +275,7 @@ def cmd_prune(args):
     days = args.days
     conn = init_db()
     c = conn.cursor()
-    c.execute("SELECT id FROM runs WHERE timestamp < datetime('now', ?)", (f"-{days} days",))
+    c.execute("SELECT id FROM runs WHERE datetime(timestamp) < datetime('now', ?)", (f"-{days} days",))
     rows = c.fetchall()
     count = 0
     for (run_id,) in rows:
@@ -286,7 +283,7 @@ def cmd_prune(args):
         if p.exists():
             p.unlink()
         count += 1
-    c.execute("DELETE FROM runs WHERE timestamp < datetime('now', ?)", (f"-{days} days",))
+    c.execute("DELETE FROM runs WHERE datetime(timestamp) < datetime('now', ?)", (f"-{days} days",))
     conn.commit()
     conn.close()
     out_success(f"Pruned {count} runs older than {days} days.")
@@ -388,9 +385,10 @@ def cmd_internal_record(args):
         start = float(args.start) if args.start else now
         duration = now - start
         c = conn.cursor()
+        ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
         c.execute(
-            "INSERT INTO runs (id, cmd, exit_code, duration, cwd) VALUES (?, ?, ?, ?, ?)",
-            (run_id, args.cmd, args.exit, duration, os.getcwd()),
+            "INSERT INTO runs (id, timestamp, cmd, exit_code, duration, cwd) VALUES (?, ?, ?, ?, ?, ?)",
+            (run_id, ts, args.cmd, args.exit, duration, os.getcwd()),
         )
         conn.commit()
         conn.close()
@@ -663,10 +661,12 @@ def diagnose_deterministic(run: GhostRun) -> typing.Optional[dict]:
         try:
             exec_path = shutil.which(cmd_head)
             arch = get_macho_arch(exec_path) if exec_path else "unknown"
+            import platform
+            host = platform.machine()
             return {
                 "summary": "Architecture Mismatch",
                 "confidence": 0.95,
-                "evidence": [f"Execution failed with 'Bad CPU type'. Resolved binary: {exec_path} ({arch}). Host is likely arm64 but binary is x86_64."],
+                "evidence": [f"Execution failed with a CPU type error. Resolved binary: {exec_path or cmd_head} ({arch}); this machine is {host}."],
                 "actions": [{"command": f"file {exec_path}", "risk": "low"}],
             }
         except Exception:
@@ -895,7 +895,7 @@ def cmd_diagnose(args):
     if run.exit_code == 0:
         out_success("Command completed successfully.")
         return
-    out_info(f"Diagnosing run {C_CYAN}{run.run_id[:8]}{C_RESET} ({C_BOLD}{run.cmd}{C_RESET})...")
+    out_info(f"Diagnosing run {C_CYAN}{run.run_id[:8]}{C_RESET} ({C_BOLD}{redact_payload(run.cmd)}{C_RESET})...")
     diag = diagnose_deterministic(run)
     if diag:
         out_error(f"Deterministic Diagnosis: {C_BOLD}{diag['summary']}{C_RESET} {C_DIM}(Confidence: {diag['confidence']}){C_RESET}")
@@ -925,7 +925,7 @@ def cmd_explain(args):
         return
     output = get_recent_output(run)
     prompt = (
-        f"Analyze this failed terminal command:\nCommand: {run.cmd}\nExit Code: {run.exit_code}\nOutput:\n{output}\n\n"
+        f"Analyze this failed terminal command:\nCommand: {redact_payload(run.cmd)}\nExit Code: {run.exit_code}\nOutput:\n{output}\n\n"
         "Respond STRICTLY in JSON: {\"summary\": \"str\", \"root_cause\": \"str\", \"actions\": [{\"command\": \"str\", \"risk\": \"low|medium|high\"}]}"
     )
     out_info("Context Firewall active. Querying Ollama on localhost:11434...")
@@ -970,7 +970,7 @@ def run_board(stdscr):
     curses.curs_set(0)
     conn = init_db()
     c = conn.cursor()
-    c.execute("SELECT id, timestamp, exit_code, cmd FROM runs ORDER BY timestamp DESC LIMIT 50")
+    c.execute("SELECT id, timestamp, exit_code, cmd FROM runs ORDER BY julianday(timestamp) DESC, rowid DESC LIMIT 50")
     runs = c.fetchall()
     conn.close()
     if not runs:
@@ -1002,7 +1002,7 @@ def run_board(stdscr):
         
         # Draw list of runs
         for i, row in enumerate(runs[: h - 3]):
-            cmd_trunc = row[3][: left_w - 20].ljust(left_w - 20)
+            cmd_trunc = redact_payload(row[3])[: left_w - 20].ljust(left_w - 20)
             ex_code = row[2]
             status_str = f"Ex:{ex_code:<3}" if ex_code != 0 else "OK     "
             line = f" {row[0][:6]} | {status_str} | {cmd_trunc}"
@@ -1031,7 +1031,7 @@ def run_board(stdscr):
             details = [
                 f" Run ID: {run.run_id}",
                 f" Time:   {run.timestamp}",
-                f" Cmd:    {run.cmd}",
+                f" Cmd:    {redact_payload(run.cmd)}",
                 f" Exit:   {run.exit_code}",
                 "-" * (w - left_w - 3),
                 " Output Snapshot:",
@@ -1086,7 +1086,7 @@ def run_board(stdscr):
             
             # Since diagnose prints to stdout, we just fall back to a simple explain for the UI
             prompt = (
-                f"Analyze this failed terminal command:\nCommand: {run.cmd}\nExit Code: {run.exit_code}\nOutput:\n{get_recent_output(run)}\n\n"
+                f"Analyze this failed terminal command:\nCommand: {redact_payload(run.cmd)}\nExit Code: {run.exit_code}\nOutput:\n{get_recent_output(run)}\n\n"
                 "Respond STRICTLY in JSON: {\"summary\": \"str\", \"root_cause\": \"str\"}"
             )
             res = query_ollama(prompt)
@@ -1156,7 +1156,7 @@ def cmd_fix(args):
         cmd = diag["actions"][0]["command"]
         print(f"[Ghost-Pipe] Deterministic diagnosis matched ({diag['summary']}), skipping AI call.")
     else:
-        prompt = f"Command: {run.cmd}\nOutput:\n{output}\nRespond in strict JSON: {{\"repair_command\": \"str\"}}"
+        prompt = f"Command: {redact_payload(run.cmd)}\nOutput:\n{output}\nRespond in strict JSON: {{\"repair_command\": \"str\"}}"
         res = query_ollama(prompt)
         if not res or "repair_command" not in res:
             err = res.get("error") if res else "Ollama unreachable"
@@ -1208,7 +1208,7 @@ def cmd_fix(args):
             except (ValueError, subprocess.TimeoutExpired) as e:
                 print(f"✗ Command execution failed: {e}")
                 return
-            print(f"Rerunning original command ({run.cmd})...")
+            print(f"Rerunning original command ({redact_payload(run.cmd)})...")
             # SECURITY FIX: Parse original command safely
             try:
                 orig_args = shlex.split(run.cmd)
@@ -1270,7 +1270,7 @@ def get_last_good_run(run: GhostRun) -> typing.Optional[GhostRun]:
     conn = init_db()
     c = conn.cursor()
     c.execute(
-        "SELECT id, timestamp, cmd, exit_code, duration, cwd FROM runs WHERE exit_code = 0 AND cmd LIKE ? AND id != ? AND timestamp < ? ORDER BY timestamp DESC LIMIT 1",
+        "SELECT id, timestamp, cmd, exit_code, duration, cwd FROM runs WHERE exit_code = 0 AND cmd LIKE ? AND id != ? AND julianday(timestamp) < julianday(?) ORDER BY julianday(timestamp) DESC, rowid DESC LIMIT 1",
         (f"{cmd_family}%", run.run_id, run.timestamp),
     )
     row = c.fetchone()
@@ -1297,8 +1297,8 @@ def cmd_compare(args):
         return
     print(f"Comparing Failure ({run_a.run_id[:8]}) vs Success ({run_b.run_id[:8]})")
     out_dim("-" * 60)
-    print(f"Command A (Failed): {run_a.cmd}")
-    print(f"Command B (Good): {run_b.cmd}\n")
+    print(f"Command A (Failed): {redact_payload(run_a.cmd)}")
+    print(f"Command B (Good): {redact_payload(run_b.cmd)}\n")
     print("Changed:")
     if run_a.exit_code != run_b.exit_code:
         print(f"  exit_code:\n    {run_b.exit_code} -> {run_a.exit_code}")
@@ -1319,12 +1319,12 @@ def format_exit(code: int) -> str:
 def cmd_history(args):
     conn = init_db()
     c = conn.cursor()
-    c.execute("SELECT id, timestamp, exit_code, duration, cmd FROM runs ORDER BY timestamp DESC LIMIT 15")
+    c.execute("SELECT id, timestamp, exit_code, duration, cmd FROM runs ORDER BY julianday(timestamp) DESC, rowid DESC LIMIT 15")
     print(f"{C_BOLD}{'RUN ID':<10} | {'STATUS':<8} | {'CMD'}{C_RESET}")
     out_dim("-" * 60)
     for row in c.fetchall():
         id_short = row[0][:8]
-        print(f"{id_short:<10} | {format_exit(row[2]):<8} | {row[4][:60]}")
+        print(f"{id_short:<10} | {format_exit(row[2]):<8} | {redact_payload(row[4])[:60]}")
     conn.close()
 
 def cmd_show(args):
@@ -1333,7 +1333,7 @@ def cmd_show(args):
         return print("Run not found.")
     print(f"Run ID:   {run.run_id}")
     print(f"Time:     {run.timestamp}")
-    print(f"Command:  {run.cmd}")
+    print(f"Command:  {redact_payload(run.cmd)}")
     print(f"Exit:     {run.exit_code}")
     print(f"Duration: {run.duration:.3f}s")
     print(f"Log Path: {run.output_path}")
@@ -1343,7 +1343,7 @@ def cmd_timeline(args):
     if not run:
         return print("Run not found.")
     print(f"Timeline for {run.run_id}:")
-    print(f"[+0.000s] Process started: {run.cmd}")
+    print(f"[+0.000s] Process started: {redact_payload(run.cmd)}")
     print(f"[+{run.duration:.3f}s] Process exited with code {run.exit_code}")
 
 def cmd_bundle(args):
@@ -1387,11 +1387,28 @@ def cmd_doctor(args):
     finally:
         s.close()
 
+def _imported_modules() -> set:
+    tree = ast.parse(pathlib.Path(__file__).read_text())
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(a.name.split(".")[0] for a in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            names.add(node.module.split(".")[0])
+    return names
+
 def cmd_audit():
     out_header("Standard Library Audit")
-    print(f"  {C_GREEN}✓{C_RESET} {C_BOLD}third‑party imports:{C_RESET} 0")
-    print(f"  {C_GREEN}✓{C_RESET} {C_BOLD}external runtime dependencies:{C_RESET} 0")
-    print(f"  {C_GREEN}✓{C_RESET} {C_BOLD}HTTP implementation:{C_RESET} urllib (standard library)")
+    imported = _imported_modules()
+    stdlib = getattr(sys, "stdlib_module_names", None)
+    if stdlib is None:
+        print(f"  {C_YELLOW}⚠{C_RESET} Python < 3.10 cannot list the standard library; imports: {', '.join(sorted(imported))}")
+    else:
+        third = sorted(m for m in imported if m not in stdlib)
+        mark = f"{C_GREEN}✓{C_RESET}" if not third else f"{C_RED}✗{C_RESET}"
+        print(f"  {mark} {C_BOLD}third‑party imports:{C_RESET} {len(third)}{(' (' + ', '.join(third) + ')') if third else ''}")
+        print(f"  {C_GREEN}✓{C_RESET} {C_BOLD}standard‑library modules used:{C_RESET} {len(imported)}")
+    print(f"  {C_GREEN}✓{C_RESET} {C_BOLD}HTTP implementation:{C_RESET} raw socket HTTP/1.1 client (standard library)")
     print(f"  {C_GREEN}✓{C_RESET} {C_BOLD}JSON implementation:{C_RESET} standard library")
     print(f"  {C_GREEN}✓{C_RESET} {C_BOLD}terminal rendering:{C_RESET} ANSI escape codes / optional curses")
     print(f"  {C_GREEN}✓{C_RESET} {C_BOLD}Ollama:{C_RESET} optional localhost service")
@@ -1410,6 +1427,35 @@ class GhostPipeTests(unittest.TestCase):
         conn.close()
         del os.environ["GHOST_PIPE_TEST"]
 
+    def test_destructive_guard(self):
+        for bad in ["rm -rf /", "rm -rf ~", "curl http://x | sh", "sudo rm -r x", "mkfs.ext4 /dev/sda", ":(){ :|:& };:"]:
+            self.assertTrue(is_destructive_command(bad), bad)
+        for ok in ["npm install", "pip install requests", "lsof -i :8080"]:
+            self.assertFalse(is_destructive_command(ok), ok)
+
+    def test_redaction_more(self):
+        text = "ghp_" + "a" * 36 + " xoxb-1234567890-abc password=hunter22 https://u:pw123@host"
+        out = redact_payload(text)
+        self.assertNotIn("ghp_" + "a" * 36, out)
+        self.assertNotIn("xoxb-1234567890", out)
+        self.assertNotIn("hunter22", out)
+        self.assertNotIn("pw123", out)
+
+    def test_deterministic_rules(self):
+        GHOST_PIPE_DIR.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile("w", suffix=".log", delete=False) as f:
+            f.write("Error: listen EADDRINUSE: address already in use :::8080\n")
+        run = GhostRun("t", "", "node app.js", 1, 0.1, "/", f.name)
+        diag = diagnose_deterministic(run)
+        os.unlink(f.name)
+        self.assertEqual(diag["actions"][0]["command"], "lsof -i :8080")
+
+    def test_macho_parser(self):
+        with tempfile.NamedTemporaryFile("wb", delete=False) as f:
+            f.write(b"\xcf\xfa\xed\xfe" + struct.pack("<I", 0x0100000C) + b"\0" * 24)
+        self.assertEqual(get_macho_arch(f.name), "arm64")
+        os.unlink(f.name)
+
     def test_redaction(self):
         payload = "Traceback error with AKIAIOSFODNN7EXAMPLE and Bearer secret-token"
         redacted = redact_payload(payload)
@@ -1422,8 +1468,12 @@ def cmd_self_test(args):
     print("Ghost-Pipe self-test\n")
     suite = unittest.TestLoader().loadTestsFromTestCase(GhostPipeTests)
     res = unittest.TextTestRunner(verbosity=0).run(suite)
+    failed = {t.id().split(".")[-1] for t, _ in res.failures + res.errors}
+    for name in unittest.TestLoader().getTestCaseNames(GhostPipeTests):
+        mark = f"{C_RED}✗{C_RESET}" if name in failed else f"{C_GREEN}✓{C_RESET}"
+        print(f"  {mark} {name.removeprefix('test_').replace('_', ' ')}")
     if res.wasSuccessful():
-        print("\n  ✓ database\n  ✓ event log\n  ✓ redaction\n  ✓ fingerprinting\n  ✓ deterministic rules\n  ✓ Mach‑O parser\n  ✓ HTTP framing\n  ✓ NDJSON parser\n  ✓ repair safety\n  ✓ worktree preflight\n  ✓ transaction journal\n  ✓ success‑path behavior\n\nResult: PASS")
+        print(f"\nResult: PASS ({res.testsRun} tests)")
         sys.exit(0)
     else:
         print("\nResult: FAIL")
@@ -1493,7 +1543,7 @@ def main():
     p_run.add_argument("--repair-loop", type=int, default=0, metavar="N", help="On failure, propose up to N repairs. Each one requires explicit [y/N] confirmation before it runs.")
     p_diag = subparsers.add_parser("diagnose")
     p_diag.add_argument("target")
-    p_diag.add_argument("--offline", action="store_true")
+    p_diag.add_argument("--offline", action="store_true", help="accepted for compatibility; diagnose never uses the network")
     p_explain = subparsers.add_parser("explain")
     p_explain.add_argument("target")
     p_inspect = subparsers.add_parser("inspect")

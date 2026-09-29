@@ -6,8 +6,8 @@ This log fulfills the **Package Killer (+3)** and **STDLIB Log (+3)** bonus chal
 
 ### 1. HTTP Networking & Streaming
 * **Normally:** `requests` or `httpx` (for querying the Ollama AI HTTP API)
-* **Instead:** `pure socket` + `socket.error`
-* **Details:** We built a custom Newline-Delimited JSON (NDJSON) streaming client using `pure socket.urlopen`. It natively handles chunked transfer encoding, socket timeouts, and streams tokens individually from the local LLM.
+* **Instead:** `socket`
+* **Details:** A hand-written HTTP/1.1 client over a raw `socket`. It sends the request, parses the status line and headers, decodes chunked transfer encoding, and streams Newline-Delimited JSON (NDJSON) tokens from the local LLM, with a socket timeout and limits on chunk size and loop iterations.
 
 ### 2. Terminal PTY Management
 * **Normally:** `pexpect` or `ptyprocess`
@@ -22,7 +22,7 @@ This log fulfills the **Package Killer (+3)** and **STDLIB Log (+3)** bonus chal
 ### 4. Rich Terminal UIs
 * **Normally:** `rich` or `textual`
 * **Instead:** `curses` + raw ANSI escape codes
-* **Details:** The `gp board` command renders a beautiful interactive dashboard. We rely on the standard library's `curses` wrapper, and fall back gracefully to raw ANSI escape sequences (`\033[31m`) if the host environment is missing the `_curses` C-extension.
+* **Details:** The `gp board` command renders a beautiful interactive dashboard. It uses the standard library's `curses` wrapper; the rest of the CLI uses raw ANSI escape sequences (`\033[31m`). If `curses` is unavailable, `board` prints a message and exits.
 
 ### 5. Binary File Inspection
 * **Normally:** `python-magic` or calling out to the OS `file` binary
@@ -32,7 +32,7 @@ This log fulfills the **Package Killer (+3)** and **STDLIB Log (+3)** bonus chal
 ### 6. Database and ORM
 * **Normally:** `SQLAlchemy` or `peewee`
 * **Instead:** `sqlite3`
-* **Details:** Command execution history is stored in a local SQLite ledger. We manage the schemas natively via `sqlite3.connect`, using `BEGIN IMMEDIATE` locks to ensure concurrent writes from background threads don't corrupt the database.
+* **Details:** Command execution history is stored in a local SQLite ledger. We manage the schemas natively via `sqlite3.connect`, in WAL mode with a busy timeout, so writes from the zsh hook and background pruning don't block each other.
 
 ### 7. Data Validation & Schemas
 * **Normally:** `pydantic`
@@ -47,9 +47,9 @@ This log fulfills the **Package Killer (+3)** and **STDLIB Log (+3)** bonus chal
 ### 9. Background Job Processing
 * **Normally:** `celery`, `rq`, or `schedule`
 * **Instead:** `threading.Thread(daemon=True)`
-* **Details:** To keep the database lean, Ghost-Pipe prunes old runs. Instead of an external task queue, we spawn a simple daemon thread before command execution that runs `auto_prune()`, isolating the database maintenance from the critical path.
+* **Details:** To keep the database lean, Ghost-Pipe prunes old runs. Instead of an external task queue, about 1% of runs spawn a daemon thread that runs `auto_prune()`, isolating the database maintenance from the critical path.
 
 ### 10. Safe Command Execution
 * **Normally:** `sh`
 * **Instead:** `shlex` + `subprocess.run(shell=False)`
-* **Details:** Instead of wrapping OS commands with an external library, we strictly tokenize all AI-generated repairs using `shlex.split()` and pass them to `subprocess.run(..., shell=False)`. This guarantees mathematically that shell injection vulnerabilities (e.g. `; rm -rf /`) are impossible.
+* **Details:** Instead of wrapping OS commands with an external library, we strictly tokenize all AI-generated repairs using `shlex.split()` and pass them to `subprocess.run(..., shell=False)`. Because no shell is involved, characters like `;`, `&&` and `|` are passed as literal arguments and cannot chain extra commands. A separate blocklist refuses obviously destructive commands.
